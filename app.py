@@ -98,14 +98,14 @@ def obtener_datos(symbol, n_eventos):
                 max_pct = (max_move_raw / pre_close) * 100
                 
                 data_rows.append({
-                    "Fecha": event_date,
-                    "Momento": etiqueta_momento, 
+                    "Fecha Evento": event_date,
+                    "Anuncio": etiqueta_momento, 
                     "Pre-Close": pre_close,
-                    "Open Reacción": open_react,
+                    "Post-Open": open_react,
                     "GAP %": gap_pct,
-                    "High Reacción": high_react,
-                    "Low Reacción": low_react,
-                    "Close Reacción": close_react,
+                    "HIGH": high_react,
+                    "LOW": low_react,
+                    "CLOSE": close_react,
                     "CLOSE %": close_pct,
                     "MAX %": max_pct
                 })
@@ -192,4 +192,5 @@ else:
                 height=altura_tabla 
             )
         elif mensaje:
+
             st.warning(f"Aviso: {mensaje}")
