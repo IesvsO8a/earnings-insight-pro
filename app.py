@@ -99,9 +99,9 @@ def obtener_datos(symbol, n_eventos):
                 
                 data_rows.append({
                     "Fecha": event_date,
-                    "Anuncio": etiqueta_momento, 
+                    "Momento": etiqueta_momento, 
                     "Pre-Close": pre_close,
-                    "Post-Open": open_react,
+                    "Open Reacción": open_react,
                     "GAP %": gap_pct,
                     "High Reacción": high_react,
                     "Low Reacción": low_react,
