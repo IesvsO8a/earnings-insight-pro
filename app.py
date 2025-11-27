@@ -3,202 +3,247 @@ import yfinance as yf
 import pandas as pd
 from datetime import timedelta
 import streamlit.components.v1 as components
+import requests
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Earnings Insight Pro", layout="wide")
 
-# --- BARRA LATERAL (INPUTS) ---
+# --- CSS VISUAL ---
+st.markdown("""
+    <style>
+        /* ESTILOS DEL ENCABEZADO FIJO (STICKY) */
+        div[data-testid="stVerticalBlock"] > div:has(div#sticky-header) {
+            position: sticky; top: 2.875rem; background-color: var(--background-color); 
+            z-index: 99999; padding: 15px 0; border-bottom: 1px solid rgba(128,128,128,0.2);
+            background-image: linear-gradient(var(--background-color), var(--background-color));
+        }
+        
+        /* Separación de la tabla */
+        div[data-testid="stDataFrame"] { margin-top: 10px; }
+        
+        /* ESTILO BOTÓN DONACIÓN (AMARILLO LLAMATIVO) */
+        .bmc-button {
+            padding: 5px 10px; border-radius: 5px; background-color: #FFDD00;
+            color: #000 !important; text-decoration: none; font-weight: bold;
+            display: flex; justify-content: center; border: 1px solid #e0c200;
+            margin: 5px 0 10px 0;
+        }
+        .bmc-button:hover { background-color: #e6c700; text-decoration: none; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- RECUPERACIÓN SEGURA DE LA API KEY ---
+try:
+    API_KEY_FMP = st.secrets["FMP_API_KEY"]
+except Exception:
+    API_KEY_FMP = None
+
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("Configuración")
-    ticker = st.text_input("Ticker (Ej. AAPL)", value="").upper()
+    ticker = st.text_input("Símbolo de la Acción (Ticker)", value="").upper()
     dias_analisis = st.slider("Eventos a analizar", 4, 37, 8)
-    st.button("Actualizar Análisis") 
+    
+    # Botón de limpieza de memoria (Cache Busting)
+    if st.button("Actualizar Análisis"):
+        st.cache_data.clear()
+    
     st.divider()
-    st.info("El sistema detecta automáticamente si el reporte fue antes (BMO) o después (AMC) del mercado.")
+    
+    # --- SECCIÓN DE APOYO (CAJA AZUL) ---
+    st.markdown("### ☕ Apoya el proyecto")
+    # st.info crea la caja azul automáticamente
+    st.info("Herramienta gratuita. Si la información te es útil, invítame un café para mantener el servidor activo.")
+    
+    # Botón HTML dentro de la sidebar
+    st.markdown('<a href="https://buymeacoffee.com/iesvso8a" target="_blank" class="bmc-button">☕ Invítame un Café</a>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Nota técnica discreta
+    if API_KEY_FMP:
+        st.caption("Estado: Conectado a FMP (Pro) ✅")
+    else:
+        st.caption("Estado: Modo Gratuito (Yahoo) ⚠️")
 
-# --- LÓGICA DE DATOS ---
-def obtener_datos(symbol, n_eventos):
+# --- FUNCIONES AUXILIARES ---
+def obtener_fechas_fmp(symbol, api_key, limit=50):
+    url = f"https://financialmodelingprep.com/api/v3/historical/earning_calendar/{symbol}?limit={limit}&apikey={api_key}"
     try:
-        stock = yf.Ticker(symbol)
+        response = requests.get(url, timeout=5)
+        data = response.json()
         
-        # 1. PRECIO ACTUAL
-        try:
-            precio_actual = stock.fast_info['last_price']
-            prev_close = stock.fast_info['previous_close']
-            variacion_dia = ((precio_actual - prev_close) / prev_close) * 100
-        except:
-            precio_actual = 0
-            variacion_dia = 0
+        if isinstance(data, dict) and "Error Message" in data: return None, "Error API"
+        if not data: return None, "No Data"
+            
+        df = pd.DataFrame(data)
+        df['date'] = pd.to_datetime(df['date'])
+        return df, "OK"
+    except Exception as e:
+        return None, str(e)
+
+# --- LÓGICA PRINCIPAL ---
+@st.cache_data(ttl=600, show_spinner=False)
+def obtener_datos(symbol, n_eventos, api_key):
+    source_used = "Yahoo Finance"
+    earnings_data = []
+    stock = yf.Ticker(symbol)
+    
+    # 1. PRECIO ACTUAL
+    try:
+        precio_actual = stock.fast_info['last_price']
+        prev_close = stock.fast_info['previous_close']
+        variacion_dia = ((precio_actual - prev_close) / prev_close) * 100
+    except:
+        precio_actual = 0; variacion_dia = 0
+
+    # 2. OBTENER FECHAS (Híbrido)
+    use_yahoo = True
+    
+    # Intento FMP (Invisible)
+    if api_key:
+        df_fmp, msg = obtener_fechas_fmp(symbol, api_key, limit=n_eventos + 5)
         
-        # 2. HISTORIAL DE EARNINGS
+        if df_fmp is not None and not df_fmp.empty:
+            use_yahoo = False
+            source_used = "FMP Data (Verificado)"
+            
+            today = pd.Timestamp.now()
+            df_fmp = df_fmp[df_fmp['date'] < today].head(n_eventos)
+            
+            for _, row in df_fmp.iterrows():
+                event_date = row['date'].date()
+                time_str = str(row.get('time', '')).lower()
+                
+                if 'amc' in time_str or 'after' in time_str:
+                    etiqueta = "🌙 AMC"; off_p = 0; off_r = 1
+                elif 'bmo' in time_str or 'before' in time_str:
+                    etiqueta = "☀️ BMO"; off_p = -1; off_r = 0
+                else:
+                    etiqueta = "❓ --"; off_p = 0; off_r = 1 
+                
+                earnings_data.append({'date': event_date, 'etiqueta': etiqueta, 'off_pre': off_p, 'off_react': off_r})
+
+    # Intento Yahoo (Fallback)
+    if use_yahoo:
         try:
             earnings_dates = stock.earnings_dates
-        except KeyError:
-            # Este es el error específico ['Earnings Date']
-            return None, None, "Yahoo Finance está bloqueando temporalmente las peticiones para esta acción (Rate Limit). Intenta en 1 hora."
-        except Exception:
-            # Otros errores de conexión
-            return None, None, "No se pudo conectar con Yahoo Finance. Verifica tu conexión o intenta más tarde."
-
-        if earnings_dates is None:
-            return None, None, "No se encontraron fechas de earnings para este ticker."
+            if earnings_dates is None: return None, None, "Sin datos."
             
-        today = pd.Timestamp.now().tz_localize('UTC')
-        past_earnings = earnings_dates[earnings_dates.index < today].head(n_eventos)
-        
-        data_rows = []
-
-        for date_timestamp in past_earnings.index:
-            event_date = date_timestamp.date()
-            event_hour = date_timestamp.hour
+            today = pd.Timestamp.now().tz_localize('UTC')
+            past_earnings = earnings_dates[earnings_dates.index < today].head(n_eventos)
             
-            # --- DETECCIÓN AUTOMÁTICA BMO/AMC ---
-            if event_hour >= 15:
-                momento = "AMC"
-                etiqueta_momento = "🌙 AMC" 
-                offset_pre = 0  
-                offset_react = 1 
-            else:
-                momento = "BMO" 
-                etiqueta_momento = "☀️ BMO"
-                offset_pre = -1 
-                offset_react = 0 
-            
-            start_data = event_date - timedelta(days=7)
-            end_data = event_date + timedelta(days=7)
-            
-            df_prices = stock.history(start=start_data, end=end_data, auto_adjust=False)
-            
-            if df_prices.empty:
-                continue
-
-            try:
-                loc_idx = df_prices.index.get_indexer([pd.Timestamp(event_date).tz_localize(df_prices.index.dtype.tz)], method='nearest')[0]
-                
-                idx_pre = loc_idx + offset_pre
-                idx_react = loc_idx + offset_react
-                
-                if idx_pre < 0 or idx_react >= len(df_prices):
-                    continue
-
-                pre_earnings_row = df_prices.iloc[idx_pre]
-                reaction_row = df_prices.iloc[idx_react] 
-                
-                pre_close = pre_earnings_row['Close']
-                
-                open_react = reaction_row['Open']
-                high_react = reaction_row['High']
-                low_react = reaction_row['Low']
-                close_react = reaction_row['Close']
-                
-                # Fórmulas
-                gap_pct = ((open_react - pre_close) / pre_close) * 100
-                close_pct = ((close_react - pre_close) / pre_close) * 100
-                
-                move_to_high = high_react - pre_close
-                move_to_low = low_react - pre_close
-                
-                if abs(move_to_high) > abs(move_to_low):
-                    max_move_raw = move_to_high
+            for date_timestamp in past_earnings.index:
+                event_date = date_timestamp.date()
+                if date_timestamp.hour >= 15:
+                    etiqueta = "🌙 AMC"; off_p = 0; off_r = 1
                 else:
-                    max_move_raw = move_to_low
-                    
-                max_pct = (max_move_raw / pre_close) * 100
+                    etiqueta = "☀️ BMO"; off_p = -1; off_r = 0
                 
-                # --- AQUÍ DEFINIMOS LOS NOMBRES DE LAS COLUMNAS ---
-                data_rows.append({
-                    "Fecha": event_date,
-                    "Anuncio": etiqueta_momento,  # Cambiado de "Momento"
-                    "Pre-Close": pre_close,
-                    "Post-Open": open_react,      # Cambiado de "Open Reacción"
-                    "GAP %": gap_pct,
-                    "Post-High": high_react,      # Cambiado a Post-High
-                    "Post-Low": low_react,        # Cambiado a Post-Low
-                    "Post-Close": close_react,    # Cambiado a Post-Close
-                    "CLOSE %": close_pct,
-                    "MAX %": max_pct
-                })
-                
-            except Exception:
-                continue 
+                earnings_data.append({'date': event_date, 'etiqueta': etiqueta, 'off_pre': off_p, 'off_react': off_r})
+        except Exception:
+            return None, None, "Error de conexión con Yahoo."
 
-        if not data_rows:
-            return (precio_actual, variacion_dia), None, "No hay datos suficientes."
+    # 3. PRECIOS HISTÓRICOS
+    data_rows = []
+    for evento in earnings_data:
+        event_date = evento['date']
+        start = event_date - timedelta(days=7)
+        end = event_date + timedelta(days=7)
+        
+        df_prices = stock.history(start=start, end=end, auto_adjust=False)
+        if df_prices.empty: continue
 
-        return (precio_actual, variacion_dia), pd.DataFrame(data_rows), "OK"
+        try:
+            loc_idx = df_prices.index.get_indexer([pd.Timestamp(event_date).tz_localize(df_prices.index.dtype.tz)], method='nearest')[0]
+            idx_pre = loc_idx + evento['off_pre']
+            idx_react = loc_idx + evento['off_react']
+            
+            if idx_pre < 0 or idx_react >= len(df_prices): continue
 
-    except Exception as e:
-        return None, None, str(e)
+            pre = df_prices.iloc[idx_pre]['Close']
+            row_r = df_prices.iloc[idx_react]
+            
+            op, hi, lo, cl = row_r['Open'], row_r['High'], row_r['Low'], row_r['Close']
+            
+            gap = ((op - pre) / pre) * 100
+            clo_pct = ((cl - pre) / pre) * 100
+            
+            m_hi = hi - pre
+            m_lo = lo - pre
+            max_raw = m_hi if abs(m_hi) > abs(m_lo) else m_lo
+            max_pct = (max_raw / pre) * 100
+            
+            data_rows.append({
+                "Fecha": event_date, "Anuncio": evento['etiqueta'], 
+                "Pre-Close": pre, "Post-Open": op, "GAP %": gap, 
+                "Post-High": hi, "Post-Low": lo, "Post-Close": cl, 
+                "CLOSE %": clo_pct, "MAX %": max_pct
+            })
+        except: continue
 
-# --- VISUALIZACIÓN PRINCIPAL ---
+    if not data_rows: return (precio_actual, variacion_dia), None, "Datos insuficientes."
+    return (precio_actual, variacion_dia), pd.DataFrame(data_rows), source_used
 
+# --- VISUALIZACIÓN ---
 if not ticker:
     st.title("📊 Earnings Insight | Pro Edition")
     st.markdown("Análisis de reacción de precios post-reporte.")
     st.info("👈 Ingresa un Ticker en el menú lateral y presiona ENTER para comenzar.")
-
 else:
-    # Auto-scroll al inicio
-    components.html(
-        f"""<script>window.parent.document.querySelector('section.main').scrollTo(0, 0);</script>""",
-        height=0, width=0
-    )
+    components.html("""<script>window.parent.document.querySelector('section.main').scrollTo(0, 0);</script>""", height=0, width=0)
 
     with st.spinner(f'Analizando historial de {ticker}...'):
-        datos_live, df, mensaje = obtener_datos(ticker, dias_analisis)
+        datos_live, df, mensaje = obtener_datos(ticker, dias_analisis, API_KEY_FMP)
         
         if datos_live is not None and df is not None:
+            fuente = mensaje 
+            with st.container():
+                st.markdown('<div id="sticky-header"></div>', unsafe_allow_html=True)
+                
+                # TÍTULO Y DESCRIPCIÓN RESTAURADA
+                st.title("📊 Earnings Insight | Pro Edition")
+                st.markdown("Análisis de reacción de precios post-reporte.")
+                
+                # LEYENDA SUTIL DEL ORIGEN DE DATOS
+                if "FMP" in fuente:
+                    st.caption(f"⚡ Fuente de datos: **{fuente}**")
+                else:
+                    st.caption(f"📡 Fuente de datos: **{fuente}**")
+                
+                precio, var_dia = datos_live
+                now_ny = pd.Timestamp.now(tz='America/New_York')
+                market_open = now_ny.replace(hour=9, minute=30, second=0)
+                market_close = now_ny.replace(hour=16, minute=0, second=0)
+                emoji_mercado = "☀️" if (0 <= now_ny.dayofweek <= 4 and market_open <= now_ny <= market_close) else "🌙"
+                
+                # MÉTRICA DE PRECIO CON ADVERTENCIA DE RETRASO
+                st.metric(
+                    label=f"Precio {ticker} {emoji_mercado} (Puede tener retraso)", 
+                    value=f"${precio:.2f}", 
+                    delta=f"{var_dia:.2f}%"
+                )
+                
+                # PROMEDIOS
+                mean_gap = df["GAP %"].abs().mean()
+                mean_max = df["MAX %"].abs().mean()
+                c1, c2 = st.columns(2)
+                c1.info(f"Gap Promedio (Abs): {mean_gap:.2f}%")
+                c2.info(f"Movimiento Max Promedio (Abs): {mean_max:.2f}%")
             
-            st.title("📊 Earnings Insight | Pro Edition")
-            st.markdown("Análisis de reacción de precios post-reporte.")
-            
-            precio, var_dia = datos_live
-            
-            # Emoji Mercado
-            now_ny = pd.Timestamp.now(tz='America/New_York')
-            market_open = now_ny.replace(hour=9, minute=30, second=0)
-            market_close = now_ny.replace(hour=16, minute=0, second=0)
-            
-            if 0 <= now_ny.dayofweek <= 4 and market_open <= now_ny <= market_close:
-                emoji_mercado = "☀️" 
-            else:
-                emoji_mercado = "🌙" 
-            
-            st.metric(f"Precio {ticker} {emoji_mercado}", f"${precio:.2f}", f"{var_dia:.2f}%")
-            
-            # Promedios
-            mean_gap = df["GAP %"].abs().mean()
-            mean_max = df["MAX %"].abs().mean()
-            
-            c1, c2 = st.columns(2)
-            c1.info(f"Gap Promedio (Abs): {mean_gap:.2f}%")
-            c2.info(f"Movimiento Max Promedio (Abs): {mean_max:.2f}%")
-            
-            st.divider()
-
-            # Estilos
+            # TABLA
             def color_nums(val):
                 color = '#4CAF50' if val > 0 else '#FF5252'
                 return f'color: {color}; font-weight: bold'
 
             altura_tabla = (len(df) + 1) * 35 + 3
 
-            # --- AQUI ESTÁ EL FORMATO (DEBE COINCIDIR EXACTAMENTE CON LOS NOMBRES DE ARRIBA) ---
             st.dataframe(
                 df.style.format({
-                    "Pre-Close": "${:.2f}",
-                    "Post-Open": "${:.2f}",   # Actualizado
-                    "GAP %": "{:.2f}%",
-                    "Post-High": "${:.2f}",   # Actualizado
-                    "Post-Low": "${:.2f}",    # Actualizado
-                    "Post-Close": "${:.2f}",  # Actualizado
-                    "CLOSE %": "{:.2f}%",
-                    "MAX %": "{:.2f}%"
+                    "Pre-Close": "${:.2f}", "Post-Open": "${:.2f}", "GAP %": "{:.2f}%",
+                    "Post-High": "${:.2f}", "Post-Low": "${:.2f}", "Post-Close": "${:.2f}",
+                    "CLOSE %": "{:.2f}%", "MAX %": "{:.2f}%"
                 }).applymap(color_nums, subset=['GAP %', 'CLOSE %', 'MAX %']),
-                use_container_width=True,
-                hide_index=True,
-                height=altura_tabla 
+                use_container_width=True, hide_index=True, height=altura_tabla 
             )
-        elif mensaje:
-
-            st.warning(f"Aviso: {mensaje}")
+        elif mensaje: st.warning(f"Aviso: {mensaje}")
