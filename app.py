@@ -8,27 +8,26 @@ import requests
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Earnings Insight Pro", layout="wide")
 
-# --- CSS VISUAL ---
+# --- CSS VISUAL (SOLO PARA BOTONES, SIN STICKY HEADER) ---
 st.markdown("""
     <style>
-        /* ESTILOS DEL ENCABEZADO FIJO (STICKY) */
-        div[data-testid="stVerticalBlock"] > div:has(div#sticky-header) {
-            position: sticky; top: 2.875rem; background-color: var(--background-color); 
-            z-index: 99999; padding: 15px 0; border-bottom: 1px solid rgba(128,128,128,0.2);
-            background-image: linear-gradient(var(--background-color), var(--background-color));
-        }
-        
-        /* Separación de la tabla */
-        div[data-testid="stDataFrame"] { margin-top: 10px; }
-        
         /* ESTILO BOTÓN DONACIÓN (AMARILLO LLAMATIVO) */
         .bmc-button {
-            padding: 5px 10px; border-radius: 5px; background-color: #FFDD00;
-            color: #000 !important; text-decoration: none; font-weight: bold;
-            display: flex; justify-content: center; border: 1px solid #e0c200;
+            padding: 5px 10px; 
+            border-radius: 5px; 
+            background-color: #FFDD00;
+            color: #000 !important; 
+            text-decoration: none; 
+            font-weight: bold;
+            display: flex; 
+            justify-content: center; 
+            border: 1px solid #e0c200;
             margin: 5px 0 10px 0;
         }
-        .bmc-button:hover { background-color: #e6c700; text-decoration: none; }
+        .bmc-button:hover { 
+            background-color: #e6c700; 
+            text-decoration: none; 
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -44,23 +43,22 @@ with st.sidebar:
     ticker = st.text_input("Símbolo de la Acción (Ticker)", value="").upper()
     dias_analisis = st.slider("Eventos a analizar", 4, 37, 8)
     
-    # Botón de limpieza de memoria (Cache Busting)
+    # Botón de limpieza de memoria
     if st.button("Actualizar Análisis"):
         st.cache_data.clear()
     
     st.divider()
     
-    # --- SECCIÓN DE APOYO (CAJA AZUL) ---
+    # --- SECCIÓN DE APOYO ---
     st.markdown("### ☕ Apoya el proyecto")
-    # st.info crea la caja azul automáticamente
     st.info("Herramienta gratuita. Si la información te es útil, invítame un café para mantener el servidor activo.")
     
-    # Botón HTML dentro de la sidebar
+    # Botón HTML
     st.markdown('<a href="https://buymeacoffee.com/iesvso8a" target="_blank" class="bmc-button">☕ Invítame un Café</a>', unsafe_allow_html=True)
     
     st.divider()
     
-    # Nota técnica discreta
+    # Nota técnica discreta sobre la fuente
     if API_KEY_FMP:
         st.caption("Estado: Conectado a FMP (Pro) ✅")
     else:
@@ -68,6 +66,7 @@ with st.sidebar:
 
 # --- FUNCIONES AUXILIARES ---
 def obtener_fechas_fmp(symbol, api_key, limit=50):
+    """Consulta fechas exactas a Financial Modeling Prep"""
     url = f"https://financialmodelingprep.com/api/v3/historical/earning_calendar/{symbol}?limit={limit}&apikey={api_key}"
     try:
         response = requests.get(url, timeout=5)
@@ -82,7 +81,7 @@ def obtener_fechas_fmp(symbol, api_key, limit=50):
     except Exception as e:
         return None, str(e)
 
-# --- LÓGICA PRINCIPAL ---
+# --- LÓGICA PRINCIPAL (HÍBRIDA) ---
 @st.cache_data(ttl=600, show_spinner=False)
 def obtener_datos(symbol, n_eventos, api_key):
     source_used = "Yahoo Finance"
@@ -97,7 +96,7 @@ def obtener_datos(symbol, n_eventos, api_key):
     except:
         precio_actual = 0; variacion_dia = 0
 
-    # 2. OBTENER FECHAS (Híbrido)
+    # 2. OBTENER FECHAS
     use_yahoo = True
     
     # Intento FMP (Invisible)
@@ -191,6 +190,7 @@ if not ticker:
     st.markdown("Análisis de reacción de precios post-reporte.")
     st.info("👈 Ingresa un Ticker en el menú lateral y presiona ENTER para comenzar.")
 else:
+    # Auto-scroll al inicio (Se mantiene porque es muy útil)
     components.html("""<script>window.parent.document.querySelector('section.main').scrollTo(0, 0);</script>""", height=0, width=0)
 
     with st.spinner(f'Analizando historial de {ticker}...'):
@@ -198,39 +198,39 @@ else:
         
         if datos_live is not None and df is not None:
             fuente = mensaje 
-            with st.container():
-                st.markdown('<div id="sticky-header"></div>', unsafe_allow_html=True)
-                
-                # TÍTULO Y DESCRIPCIÓN RESTAURADA
-                st.title("📊 Earnings Insight | Pro Edition")
-                st.markdown("Análisis de reacción de precios post-reporte.")
-                
-                # LEYENDA SUTIL DEL ORIGEN DE DATOS
-                if "FMP" in fuente:
-                    st.caption(f"⚡ Fuente de datos: **{fuente}**")
-                else:
-                    st.caption(f"📡 Fuente de datos: **{fuente}**")
-                
-                precio, var_dia = datos_live
-                now_ny = pd.Timestamp.now(tz='America/New_York')
-                market_open = now_ny.replace(hour=9, minute=30, second=0)
-                market_close = now_ny.replace(hour=16, minute=0, second=0)
-                emoji_mercado = "☀️" if (0 <= now_ny.dayofweek <= 4 and market_open <= now_ny <= market_close) else "🌙"
-                
-                # MÉTRICA DE PRECIO CON ADVERTENCIA DE RETRASO
-                st.metric(
-                    label=f"Precio {ticker} {emoji_mercado} (Puede tener retraso)", 
-                    value=f"${precio:.2f}", 
-                    delta=f"{var_dia:.2f}%"
-                )
-                
-                # PROMEDIOS
-                mean_gap = df["GAP %"].abs().mean()
-                mean_max = df["MAX %"].abs().mean()
-                c1, c2 = st.columns(2)
-                c1.info(f"Gap Promedio (Abs): {mean_gap:.2f}%")
-                c2.info(f"Movimiento Max Promedio (Abs): {mean_max:.2f}%")
             
+            # --- ENCABEZADO NORMAL (SCROLLABLE) ---
+            st.title("📊 Earnings Insight | Pro Edition")
+            st.markdown("Análisis de reacción de precios post-reporte.")
+            
+            # Indicador de Fuente
+            if "FMP" in fuente:
+                st.caption(f"⚡ Fuente de datos: **{fuente}**")
+            else:
+                st.caption(f"📡 Fuente de datos: **{fuente}**")
+            
+            precio, var_dia = datos_live
+            now_ny = pd.Timestamp.now(tz='America/New_York')
+            market_open = now_ny.replace(hour=9, minute=30, second=0)
+            market_close = now_ny.replace(hour=16, minute=0, second=0)
+            emoji_mercado = "☀️" if (0 <= now_ny.dayofweek <= 4 and market_open <= now_ny <= market_close) else "🌙"
+            
+            # MÉTRICA CON ADVERTENCIA DE RETRASO
+            st.metric(
+                label=f"Precio {ticker} {emoji_mercado} (Puede tener retraso)", 
+                value=f"${precio:.2f}", 
+                delta=f"{var_dia:.2f}%"
+            )
+            
+            # PROMEDIOS
+            mean_gap = df["GAP %"].abs().mean()
+            mean_max = df["MAX %"].abs().mean()
+            c1, c2 = st.columns(2)
+            c1.info(f"Gap Promedio (Abs): {mean_gap:.2f}%")
+            c2.info(f"Movimiento Max Promedio (Abs): {mean_max:.2f}%")
+            
+            st.divider()
+
             # TABLA
             def color_nums(val):
                 color = '#4CAF50' if val > 0 else '#FF5252'
