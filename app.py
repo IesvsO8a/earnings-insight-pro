@@ -97,15 +97,16 @@ def obtener_datos(symbol, n_eventos):
                     
                 max_pct = (max_move_raw / pre_close) * 100
                 
+                # --- AQUÍ DEFINIMOS LOS NOMBRES DE LAS COLUMNAS ---
                 data_rows.append({
                     "Fecha": event_date,
-                    "Momento": etiqueta_momento, 
+                    "Anuncio": etiqueta_momento,  # Cambiado de "Momento"
                     "Pre-Close": pre_close,
-                    "Open Reacción": open_react,
+                    "Post-Open": open_react,      # Cambiado de "Open Reacción"
                     "GAP %": gap_pct,
-                    "High Reacción": high_react,
-                    "Low Reacción": low_react,
-                    "Close Reacción": close_react,
+                    "Post-High": high_react,      # Cambiado a Post-High
+                    "Post-Low": low_react,        # Cambiado a Post-Low
+                    "Post-Close": close_react,    # Cambiado a Post-Close
                     "CLOSE %": close_pct,
                     "MAX %": max_pct
                 })
@@ -129,8 +130,7 @@ if not ticker:
     st.info("👈 Ingresa un Ticker en el menú lateral y presiona ENTER para comenzar.")
 
 else:
-    # --- AUTO-SCROLL AL INICIO (JavaScript) ---
-    # Este script fuerza al navegador a subir al tope (0,0) cada vez que se recarga este bloque
+    # Auto-scroll al inicio
     components.html(
         f"""<script>window.parent.document.querySelector('section.main').scrollTo(0, 0);</script>""",
         height=0, width=0
@@ -141,7 +141,6 @@ else:
         
         if datos_live is not None and df is not None:
             
-            # Encabezado Normal (Se moverá con el scroll)
             st.title("📊 Earnings Insight | Pro Edition")
             st.markdown("Análisis de reacción de precios post-reporte.")
             
@@ -167,23 +166,24 @@ else:
             c1.info(f"Gap Promedio (Abs): {mean_gap:.2f}%")
             c2.info(f"Movimiento Max Promedio (Abs): {mean_max:.2f}%")
             
-            st.divider() # Separador visual antes de la tabla
+            st.divider()
 
-            # Tabla
+            # Estilos
             def color_nums(val):
                 color = '#4CAF50' if val > 0 else '#FF5252'
                 return f'color: {color}; font-weight: bold'
 
             altura_tabla = (len(df) + 1) * 35 + 3
 
+            # --- AQUI ESTÁ EL FORMATO (DEBE COINCIDIR EXACTAMENTE CON LOS NOMBRES DE ARRIBA) ---
             st.dataframe(
                 df.style.format({
                     "Pre-Close": "${:.2f}",
-                    "Open Reacción": "${:.2f}",
+                    "Post-Open": "${:.2f}",   # Actualizado
                     "GAP %": "{:.2f}%",
-                    "High Reacción": "${:.2f}",
-                    "Low Reacción": "${:.2f}",
-                    "Close Reacción": "${:.2f}",
+                    "Post-High": "${:.2f}",   # Actualizado
+                    "Post-Low": "${:.2f}",    # Actualizado
+                    "Post-Close": "${:.2f}",  # Actualizado
                     "CLOSE %": "{:.2f}%",
                     "MAX %": "{:.2f}%"
                 }).applymap(color_nums, subset=['GAP %', 'CLOSE %', 'MAX %']),
