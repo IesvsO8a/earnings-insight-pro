@@ -31,9 +31,17 @@ def obtener_datos(symbol, n_eventos):
             variacion_dia = 0
         
         # 2. HISTORIAL DE EARNINGS
-        earnings_dates = stock.earnings_dates
+        try:
+            earnings_dates = stock.earnings_dates
+        except KeyError:
+            # Este es el error específico ['Earnings Date']
+            return None, None, "Yahoo Finance está bloqueando temporalmente las peticiones para esta acción (Rate Limit). Intenta en 1 hora."
+        except Exception:
+            # Otros errores de conexión
+            return None, None, "No se pudo conectar con Yahoo Finance. Verifica tu conexión o intenta más tarde."
+
         if earnings_dates is None:
-            return None, None, "No se encontraron fechas."
+            return None, None, "No se encontraron fechas de earnings para este ticker."
             
         today = pd.Timestamp.now().tz_localize('UTC')
         past_earnings = earnings_dates[earnings_dates.index < today].head(n_eventos)
@@ -192,4 +200,5 @@ else:
                 height=altura_tabla 
             )
         elif mensaje:
+
             st.warning(f"Aviso: {mensaje}")
